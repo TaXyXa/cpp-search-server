@@ -60,10 +60,9 @@ public:
 
     void AddDocument(int document_id, const string& document) {
         const vector<string> words = SplitIntoWordsNoStop(document);
-        int w_size = words.size();
+        double tf_value = 1. / words.size();
         for (auto word : words) {
-            double tf_value = 1. / w_size;
-            documents_[word].insert({ document_id, tf_value });
+            documents_[word][document_id] += tf_value;
         }
     }
 
@@ -72,10 +71,8 @@ public:
     }
 
     vector<Document> FindTopDocuments(const string& raw_query) const {
-        const set<string> query_words = ParseQuery(raw_query);
-        const set<string> minus_words = ParseQueryMinus(raw_query);
-        auto matched_documents = FindAllDocuments(query_words, minus_words);
-
+        const QueryWords query_words = ParseQuery(raw_query);
+        auto matched_documents = FindAllDocuments(query_words);
         sort(matched_documents.begin(), matched_documents.end(),
             [](const Document& lhs, const Document& rhs) {
                 return lhs.relevance > rhs.relevance;
@@ -89,10 +86,15 @@ public:
 private:
 
     int document_count_ = 0;
-    //использую контейнер вида слово - {id, TF}
+    //контейнер вида слово - {id, TF}
     map <string, map<int, double>> documents_;
 
     set<string> stop_words_;
+
+    struct QueryWords {
+        set<string> plus_words;
+        set<string> minus_words;
+    };
 
     bool IsStopWord(const string& word) const {
         return stop_words_.count(word) > 0;
@@ -108,44 +110,41 @@ private:
         return words;
     }
 
-    set<string> ParseQuery(const string& text) const {
-        set<string> query_words;
+    QueryWords ParseQuery(const string& text) const {
+        QueryWords query_words;
         for (const string& word : SplitIntoWordsNoStop(text)) {
             if (word[0] != '-') {
-                query_words.insert(word);
+                query_words.plus_words.insert(word);
+            }
+            else {
+                string ord;
+                ord.assign(word.begin() + 1, word.end());
+                query_words.minus_words.insert(ord);
             }
         }
         return query_words;
     }
 
-    set<string> ParseQueryMinus(const string& text) const {
-        set<string> minus_words;
-        for (const string& word : SplitIntoWordsNoStop(text)) {
-            if (word[0] == '-') {
-                string ord;
-                ord.assign(word.begin() + 1, word.end());
-                minus_words.insert(ord);
-            }
-        }
-        return minus_words;
+    double CalcIDF(const double& document_number) const {
+        double division = document_count_ / document_number;
+        return log(division);
     }
 
-    vector<Document> FindAllDocuments(const set<string>& query_words, const set<string>& minus_words) const {
+    vector<Document> FindAllDocuments(const QueryWords& query_words) const {
         vector<Document> matched_documents;
         map <int, double> id_relevant;
-        if (!query_words.empty()) {
-            for (const auto& word : query_words) {
+        if (!query_words.plus_words.empty()) {
+            for (const auto& word : query_words.plus_words) {
                 if (documents_.count(word) != 0) {
+                    double document_number = documents_.at(word).size();
                     for (const auto& [ids, tf_value] : documents_.at(word)) {
-                        double doc_size = documents_.at(word).size();
-                        double division = document_count_ / doc_size;
-                        id_relevant[ids] += tf_value * log(division);
+                        id_relevant[ids] += tf_value * CalcIDF(document_number);
                     }
                 }
             }
         }
-        if (!minus_words.empty()) {
-            for (const auto& minus : minus_words) {
+        if (!query_words.minus_words.empty()) {
+            for (const auto& minus : query_words.minus_words) {
                 if (documents_.count(minus) != 0) {
                     for (const auto& [ids, tf_value] : documents_.at(minus)) {
                         id_relevant.erase(ids);
@@ -158,12 +157,12 @@ private:
         }
         return matched_documents;
     }
-    //end class
-};
+};//end class
 
 SearchServer CreateSearchServer() {
     SearchServer search_server;
     search_server.SetStopWords(ReadLine());
+
     int document_count = ReadLineWithNumber();
     search_server.SetDocumentCount(document_count);
     for (int document_id = 0; document_id < document_count; ++document_id) {
