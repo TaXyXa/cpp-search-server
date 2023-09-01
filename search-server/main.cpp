@@ -6,6 +6,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <numeric>
 
 using namespace std;
 
@@ -75,27 +76,15 @@ public:
         }
         documents_.emplace(document_id, DocumentData{ ComputeAverageRating(ratings), status });
     }
-    //для лямбды
+    //шаблонный
     template <typename Filter>
     vector<Document> FindTopDocuments(const string& raw_query, Filter filter) const {
         const Query query = ParseQuery(raw_query);
-        auto matched_documents = FindAllDocuments(query);
-        vector <int> indexs;
-        int index = 0;
-        for (const auto& document : matched_documents) {
-            if (!filter(document.id, documents_.at(document.id).status, document.rating)) {
-                indexs.push_back(index);
-            }
-            ++index;
-        }
-
-        for (int i = indexs.size(); i > 0; i--) {
-            matched_documents.erase(matched_documents.begin() + indexs[i - 1]);
-        }
+        auto matched_documents = FindAllDocuments(query, filter);
 
         sort(matched_documents.begin(), matched_documents.end(),
             [](const Document& lhs, const Document& rhs) {
-                if (abs(lhs.relevance - rhs.relevance) < 1e-6) {
+                if (abs(lhs.relevance - rhs.relevance) < numeric_limits<double>::epsilon()) {
                     return lhs.rating > rhs.rating;
                 }
                 else {
@@ -108,35 +97,8 @@ public:
         return matched_documents;
     }
     //Для статуса
-    vector<Document> FindTopDocuments(const string& raw_query, DocumentStatus status) const {
-        const Query query = ParseQuery(raw_query);
-        auto matched_documents = FindAllDocuments(query);
-        vector <int> indexs;
-        int index = 0;
-        for (const auto& document : matched_documents) {
-            if (documents_.at(document.id).status != status) {
-                indexs.push_back(index);
-            }
-            ++index;
-        }
-
-        for (int i = indexs.size(); i > 0; i--) {
-            matched_documents.erase(matched_documents.begin() + indexs[i - 1]);
-        }
-
-        sort(matched_documents.begin(), matched_documents.end(),
-            [](const Document& lhs, const Document& rhs) {
-                if (abs(lhs.relevance - rhs.relevance) < 1e-6) {
-                    return lhs.rating > rhs.rating;
-                }
-                else {
-                    return lhs.relevance > rhs.relevance;
-                }
-            });
-        if (matched_documents.size() > MAX_RESULT_DOCUMENT_COUNT) {
-            matched_documents.resize(MAX_RESULT_DOCUMENT_COUNT);
-        }
-        return matched_documents;
+    vector<Document> FindTopDocuments(const string& raw_query, DocumentStatus status_query) const {
+        return FindTopDocuments(raw_query, [&status_query](int document_id, DocumentStatus status, int rating) {return status == status_query; });
     }
     //для запроса без фильтра (только актуальные документы)
     vector<Document> FindTopDocuments(const string& raw_query) const {
@@ -198,7 +160,7 @@ private:
         if (ratings.empty()) {
             return 0;
         }
-        int rating_sum = accumulate(ratings.begin(), ratings.end());
+        int rating_sum = accumulate(ratings.begin(), ratings.end(), 0);
         return rating_sum / static_cast<int>(ratings.size());
     }
 
@@ -243,11 +205,9 @@ private:
     double ComputeWordInverseDocumentFreq(const string& word) const {
         return log(GetDocumentCount() * 1.0 / word_to_document_freqs_.at(word).size());
     }
-    //А что здесь можно шаблонировать? Это же приватная функция класса вызываемая из FindTopDocument, мы в нее передаем 
-    //созданную нами же структуру Query. Ну то есть я даже не могу понять какие другие типы 
-    //данных можно было бы передавать в эту функцию. Пользуясь случаем прошу прощения за неопрятный код, 
-    //торопился
-    vector<Document> FindAllDocuments(const Query& query) const {
+
+    template <typename Filter>
+    vector<Document> FindAllDocuments(const Query& query, Filter filter) const {
         map<int, double> document_to_relevance;
         for (const string& word : query.plus_words) {
             if (word_to_document_freqs_.count(word) == 0) {
@@ -272,6 +232,19 @@ private:
         for (const auto [document_id, relevance] : document_to_relevance) {
             matched_documents.push_back(
                 { document_id, relevance, documents_.at(document_id).rating });
+        }
+
+        vector <int> indexs;
+        int index = 0;
+        for (const auto& document : matched_documents) {
+            if (!filter(document.id, documents_.at(document.id).status, document.rating)) {
+                indexs.push_back(index);
+            }
+            ++index;
+        }
+
+        for (int i = indexs.size(); i > 0; i--) {
+            matched_documents.erase(matched_documents.begin() + indexs[i - 1]);
         }
         return matched_documents;
     }
