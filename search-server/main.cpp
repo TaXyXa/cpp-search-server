@@ -90,8 +90,11 @@ public:
     }
 
     void AddDocument(int document_id, const string& document, DocumentStatus status, const vector<int>& ratings) {
-        if (document_id < 0 || documents_.count(document_id)) {
-            throw invalid_argument("некорректные символы");
+        if (document_id < 0) {
+            throw invalid_argument("id меньше нуля");
+        }
+        if (documents_.count(document_id)) {
+            throw invalid_argument("id уже существует");
         }
         const vector<string> words = SplitIntoWordsNoStop(document);
         const double inv_word_count = 1.0 / words.size();
@@ -104,6 +107,7 @@ public:
             word_to_document_freqs_[word][document_id] += inv_word_count;
         }
         documents_.emplace(document_id, DocumentData{ ComputeAverageRating(ratings), status });
+        ids_.push_back(document_id);
     }
     //шаблонный
     template <typename Filter>
@@ -141,9 +145,6 @@ public:
         const Query query = ParseQuery(raw_query);
         vector<string> matched_words;
         for (const string& word : query.plus_words) {
-            if (!IsValidWord(word)) {
-                throw invalid_argument("некорректные символы");
-            }
             if (word_to_document_freqs_.count(word) == 0) {
                 continue;
             }
@@ -152,9 +153,6 @@ public:
             }
         }
         for (const string& word : query.minus_words) {
-            if (word[0]=='-' || word.empty() || !IsValidWord(word)) {
-                throw invalid_argument("некорректные минус-слова");
-            }
             if (word_to_document_freqs_.count(word) == 0) {
                 continue;
             }
@@ -167,14 +165,13 @@ public:
     }
     
     int GetDocumentId(int index) const {
-        int i = 0;
-        for (const auto& [id,doc]:documents_) {
-            if (i == index){
-                return id;
-            }
-            i++;
+        if (index <= 0) {
+            throw out_of_range("отрицательный порядковый номер");
         }
-        throw out_of_range("документов не так много");
+        if (index > ids_.size()) {
+            throw out_of_range("документов не так много");
+        }
+        return ids_[index-1];
     }
 
 private:
@@ -186,6 +183,7 @@ private:
     set<string> stop_words_;
     map<string, map<int, double>> word_to_document_freqs_;
     map<int, DocumentData> documents_;
+    vector <int> ids_;
 
     bool IsStopWord(const string& word) const {
         return stop_words_.count(word) > 0;
@@ -225,11 +223,15 @@ private:
     QueryWord ParseQueryWord(string text) const {
         bool is_minus = false;
         // Word shouldn't be empty
-        if (text[0] == '-') {
+        string word = text;
+        if (word[0] == '-') {
             is_minus = true;
-            text = text.substr(1);
+            word = text.substr(1);
         }
-        return { text, is_minus, IsStopWord(text) };
+        if (word.empty() || word[0]=='-' || !IsValidWord(word)) {
+            throw invalid_argument("некорректное слово запроса: " + text);
+        }
+        return {word, is_minus, IsStopWord(text) };
     }
 
     struct Query {
@@ -271,9 +273,6 @@ private:
     vector<Document> FindAllDocuments(const Query& query, Filter filter) const {
         map<int, double> document_to_relevance;
         for (const string& word : query.plus_words) {
-            if (!IsValidWord(word)){
-                throw invalid_argument("некорректные символы");
-            }
             if (word_to_document_freqs_.count(word) == 0) {
                 continue;
             }
@@ -284,9 +283,6 @@ private:
         }
 
         for (const string& word : query.minus_words) {
-            if (word[0]=='-' || word.empty() || !IsValidWord(word)) {
-                throw invalid_argument("некорректные минус-слова");
-            }
             if (word_to_document_freqs_.count(word) == 0) {
                 continue;
             }
