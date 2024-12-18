@@ -1,4 +1,3 @@
-//#progma once
 #include "document.h"
 #include "request_queue.h"
 

@@ -15,9 +15,7 @@ const int MAX_RESULT_DOCUMENT_COUNT = 5;
 
 class SearchServer {
 public:
-    //сделал несколько функций вместо одной шаблонной потому что из-за шаблона string воспринимался 
-    //как контейнер char и выдавал ошибку в функции MakeUniqueNonEmptyStrings при конвертации const char 
-    // в string
+
     explicit SearchServer(const std::vector<std::string>& stop_words);
     
     explicit SearchServer(const std::set<std::string>& stop_words);
@@ -73,7 +71,6 @@ private:
 
     Query ParseQuery(const std::string& text) const;
 
-    // Existence required
     double ComputeWordInverseDocumentFreq(const std::string& word) const;
 
     template <typename DocumentPredicate>
